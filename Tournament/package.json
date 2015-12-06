@@ -1,0 +1,13 @@
+{
+  "name": "Tournament",
+  "version": "0.0.0",
+  "description": "Tournament",
+  "main": "server.js",
+  "author": {
+    "name": "fitzchak",
+    "email": ""
+  },
+  "dependencies": {
+    "express": "^4.13.3"
+  }
+}
