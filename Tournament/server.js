@@ -9,6 +9,21 @@ var exphbs = require('express-handlebars');
 app.engine('handlebars', exphbs({ defaultLayout: 'main' }));
 app.set('view engine', 'handlebars');
 
+
+var helpers = {
+	hasLength: function (v1) {
+		if (!!v1 && v1.length) {
+			return options.fn(this);
+		}
+		else {
+			options.inverse(this);
+		}
+	}
+};
+
+
+
+
 function ensureDatabaseExists(databaseName, successCallback, failureCallback){
     var getDatabase = http.request({ host: "localhost", port: 8080, path: "/databases/" + encodeURIComponent("<system>") + "/docs/Raven/Databases/"+ databaseName, method: "GET" }, function (ack) {
         var getData = [];
@@ -33,10 +48,12 @@ function createNewDatabase(databaseName, successCallback){
             data.push(chunk);
         });
         ack.on('end', function (param) {            
-            if (!!data && data.length == 0)
-                successCallback(true);
-            else
-                successCallback(false);
+			if (!!data && data.length == 0)
+				successCallback(true);
+			else {
+				var message = data.join("");
+				successCallback(false);
+			}
         });
     }).on('error', function (nack) {
         successCallback(false);
@@ -46,15 +63,52 @@ function createNewDatabase(databaseName, successCallback){
     ravenReq.end();
 }
 
+function getTournaments(databaseName, successCallback, failCallback) {
+	var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/" + databaseName + "/docs?startsWith=tournament", method: "GET" }, function (ack) {
+		
+
+		var data = [];
+		ack.on('data', function (chunk) {
+			data.push(chunk);
+		});
+		ack.on('end', function (param) {
+			var tournamentsJson = data.join("");
+			if (!tournamentsJson || tournamentsJson.length == 0) {
+				failCallback();
+			}
+			var tournaments = JSON.parse(tournamentsJson);			
+			successCallback(tournaments);			
+		});
+	}).on('error', function (nack) {
+		failCallback();
+	});	
+	ravenReq.end();
+}
+
 app.get('/', function (req, res) {
     
     ensureDatabaseExists("tournament", function (status) {
-        if (status!= 200) {
-            createNewDatabase("tournament",  function (success) { res.render("home", { isValid: success}); })
-           
+		if (status != 200) {
+			createNewDatabase("tournament", function (success) {
+				if (success) {
+					getTournaments("tournament", function (tournaments) {
+						res.render("home", { isValid: true, tournaments:tournaments , helpers:helpers });
+					}, function () {
+						res.render("home", { isValid: true });
+					});
+				}
+				else {
+					res.render("home", { isValid: success });
+				}
+			});						
         }
-        else if (status == 200)
-            res.render("home", { isValid: true });
+		else if (status == 200) {
+			getTournaments("tournament", function (tournaments) {
+				res.render("home", { isValid: true, tournaments: tournaments.map(function (tournament) { return tournament['@metadata']['@id'];}) , helpers: helpers });
+			}, function () {
+				res.render("home", { isValid: true });
+			});
+		}
         else
             res.render("home", { isValid: false });
     }, 
@@ -74,8 +128,8 @@ app.get('/new', function (req, res) {
         isFinished:false
     };
     
-    var players = [
-        { id: 1, name: "fitzchak" }, 
+	var players = [
+		 { id: 1, name: "fitzchak" }, 
         { id: 2, name: "Adi" }, 
         { id: 3, name: "hila" }, 
         { id: 4, name: "Maxim" },
@@ -88,19 +142,22 @@ app.get('/new', function (req, res) {
         { id: 11, name: "Gd" }
     ];
 
-    players = shuffle(players);
+    //players = shuffle(players);
 
-    var matches = [];
+	var levels = [];
+	var levelMatches = [];
+	levels.push({ level: 0, matches: levelMatches });
+	
     var closetPowerOf2 = Math.pow(2, Math.ceil(Math.log(players.length) / Math.log(2)));
     for (var i = 0; i < players.length; i++) {
         if (i < closetPowerOf2 / 2) {
-            matches.push([players[i], players[i + 1]]);
+			levelMatches.push({ players: [players[i], players [i + 1]], state: 'Not Resolved' });
             i++;
         } else {
-            matches.push([players[i], null]);
+			levelMatches.push({ players: [players[i], {id:-1,name:"n/a",isFake:true}], state: players[i] });
         }
     }
-    tournament.matches = matches;
+    tournament.levels = levels;
 
 	ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/tournament/", method: "PUT" }, function (ack, resp) {
 	    var data = [];
@@ -137,24 +194,68 @@ function shuffle(array) {
     
     return array;
 }
+function getTournament(id,successCallback, failureCallback) {
+	var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/" + id, method: "GET" }, function (ack, resp) {
+		var data = [];
+		ack.on('data', function (chunk) {
+			data.push(chunk);
+		});
+		ack.on('end', function () {
+			if (!!data && data.length > 0) {
+				result = JSON.parse(data.join(''));
+				successCallback(result);
+			}
+			else
+				failureCallback();
+		});
+	}).on('error', function (nack) {
+		failureCallback();
+	});
+	ravenReq.end();
+}
+
+function saveTournament(id,tournament, successCallback, failureCallback) {
+	var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/" + id, method: "PUT" }, function (ack, resp) {
+		var data = [];
+		ack.on('data', function (chunk) {
+			data.push(chunk);
+		});
+		ack.on('end', function () {
+			if (ack.statusCode == 200|| ack.statusCode == 201) {
+				successCallback();
+			}
+			else
+				failureCallback();			
+		});
+	}).on('error', function (nack) {
+		failureCallback();
+	});
+	ravenReq.write(JSON.stringify(tournament));
+	ravenReq.end();
+}
 
 app.get('/tournament/*', function (req, res) {
     var id = req.params[0];
-    var result = null;
-    var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/"+ id, method: "GET" }, function (ack, resp) {
-        var data = [];
-        ack.on('data', function (chunk) {
-            data.push(chunk);
-        });
-        ack.on('end', function () {
-            result = JSON.parse(data.join(''));
-            res.render("tournament", { id: id });
-        });
-    }).on('error', function (nack) {
-        res.redirect("new" + result.Key);
-    });
-    ravenReq.end();
+	var result = null;
+	
+	if (!!req.query.level) {
+		getTournament(id, function (result) {
+			var winner = result.levels[req.query.level].matches[req.query.match].players.find(function (x,i,a) {
+				return x.id.toString() === req.query.winner;
+			});
+			result.levels[req.query.level].matches[req.query.match].state = winner;
+			saveTournament(id, result, function () { res.render("tournament", { id: id, tournament: result }); }, function () { res.redirect("new" + result.Key); });
+			
+		}, function () {
+			res.redirect("/");
+		});
+	} else {
+		getTournament(id, function (result) { res.render("tournament", { id: id, tournament: result }); }, function () { res.redirect("/"); });
+		
+	}    
 });
+
+
 
 var server = app.listen(port, function () {
 	var host = server.address().address;

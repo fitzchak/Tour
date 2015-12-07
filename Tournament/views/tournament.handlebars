@@ -1,9 +1,32 @@
 ﻿<h2>Tournament: {{id}}</h2>
 
 <div>    
-    <ul>
+    {{#with tournament}}
+    
         {{#each levels}}
-        <li>{{name}} ({{id}})</li>
+    <div style="border:2px solid black;">
+        <p>Level {{level}}</p>
+        {{#each matches}}        
+        <div style="border:1px solid black;width:10%;float:left;">            
+            <div >Player 1:{{players.[0].name}}</div>            
+            
+            <a href="/tournament/{{../../../id}}?level={{../level}}&match={{@index}}&winner={{players.[0].id}}">Player 1 wins</a>
+            <div>VS</div>
+            
+            {{#if players.[1].isFake}}            
+            <div>Player 2:{{players.[1].name}}</div>            
+            {{else}}
+            <a href="/tournament/{{../../../../id}}?level={{../../level}}&match={{@index}}&winner={{players.[1].id}}">Player 2:{{players.[1].name}}</a>
+            {{/if}}
+            <div>
+                Winner: {{state.name}}
+            </div>            
+            
+        </div>
         {{/each}}
-    </ul>
+    </div>
+
+        {{/each}}
+    
+    {{/with}}
 </div>

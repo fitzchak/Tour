@@ -1,5 +1,11 @@
 ﻿<h1>AirHockey Tournament Manager HD NG 2.0</h1>
 {{#if isValid}}
+{{#each tournaments}}
+
+<p><a href="tournament/{{this}}">{{this}}</a></p>
+
+
+{{/each}}
 <a href="/new">Create new tournament</a>
 {{else}}
 <h2>RavenDB unaccessible!</h2>
