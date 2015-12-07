@@ -9,24 +9,69 @@ var exphbs = require('express-handlebars');
 app.engine('handlebars', exphbs({ defaultLayout: 'main' }));
 app.set('view engine', 'handlebars');
 
+function ensureDatabaseExists(databaseName, successCallback, failureCallback){
+    var getDatabase = http.request({ host: "localhost", port: 8080, path: "/databases/" + encodeURIComponent("<system>") + "/docs/Raven/Databases/"+ databaseName, method: "GET" }, function (ack) {
+        var getData = [];
+        ack.on('data', function (chunk) {
+            getData.push(chunk);
+        });
+        ack.on('end', function (param) {
+            var dataString = getData.join('');
+            successCallback(ack.statusCode);
+        });
+    }).on('error', function (nack) {
+        failureCallback
+    });
+    getDatabase.end();
+}
+
+function createNewDatabase(databaseName, successCallback){
+    var ravendoc = { SecuredSettings: {}, Settings: { "Raven/DataDir": "~/"+ databaseName}, "Disabled": false, Id: databaseName };
+    var ravenReq = http.request({ host: "localhost", port: 8080, path: "/admin/databases/"+ databaseName, method: "PUT" }, function (ack) {
+        var data = [];
+        ack.on('data', function (chunk) {
+            data.push(chunk);
+        });
+        ack.on('end', function (param) {            
+            if (!!data && data.length == 0)
+                successCallback(true);
+            else
+                successCallback(false);
+        });
+    }).on('error', function (nack) {
+        successCallback(false);
+    });
+    
+    ravenReq.write(JSON.stringify(ravendoc));
+    ravenReq.end();
+}
+
 app.get('/', function (req, res) {
-
-
-    /*for (var i = 0; i < players.length; i++) {
-		var player = players[i];
-		http.put("http://localhost:8080/databases/tournament/docs/");
-    }*/
-
-    res.render("home");
+    
+    ensureDatabaseExists("tournament", function (status) {
+        if (status!= 200) {
+            createNewDatabase("tournament",  function (success) { res.render("home", { isValid: success}); })
+           
+        }
+        else if (status == 200)
+            res.render("home", { isValid: true });
+        else
+            res.render("home", { isValid: false });
+    }, 
+        function () {
+        res.render("home", { isValid: false });
+    });
+    
+    
 });
 
 app.get('/new', function (req, res) {
-
 	var tournament = {
 		name: "",
 		createdAt: "",
         fetchPlayersFrom: "",
-        matches:[]
+        matches: [],
+        isFinished:false
     };
     
     var players = [
@@ -57,7 +102,7 @@ app.get('/new', function (req, res) {
     }
     tournament.matches = matches;
 
-	var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/tournament/", method: "PUT" }, function (ack, resp) {
+	ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/tournament/", method: "PUT" }, function (ack, resp) {
 	    var data = [];
 		ack.on('data', function (chunk) {
 		    data.push(chunk);
