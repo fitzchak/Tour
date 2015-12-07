@@ -128,52 +128,73 @@ app.get('/new', function (req, res) {
         isFinished:false
     };
     
-	var players = [
-		 { id: 1, name: "fitzchak" }, 
-        { id: 2, name: "Adi" }, 
-        { id: 3, name: "hila" }, 
-        { id: 4, name: "Maxim" },
-        { id: 5, name: "A" },
-        { id: 6, name: "B" },
-        { id: 7, name: "C" },
-        { id: 8, name: "F" },
-        { id: 9, name: "D2" },
-        { id: 10, name: "Fsd" },
-        { id: 11, name: "Gd" }
-    ];
-
-    //players = shuffle(players);
-
-	var levels = [];
-	var levelMatches = [];
-	levels.push({ level: 0, matches: levelMatches });
-	
-    var closetPowerOf2 = Math.pow(2, Math.ceil(Math.log(players.length) / Math.log(2)));
-    for (var i = 0; i < players.length; i++) {
-        if (i < closetPowerOf2 / 2) {
-			levelMatches.push({ players: [players[i], players [i + 1]], state: 'Not Resolved' });
-            i++;
-        } else {
-			levelMatches.push({ players: [players[i], {id:-1,name:"n/a",isFake:true}], state: players[i] });
-        }
-    }
-    tournament.levels = levels;
-
-	ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/tournament/", method: "PUT" }, function (ack, resp) {
-	    var data = [];
-		ack.on('data', function (chunk) {
-		    data.push(chunk);
-		});
-		ack.on('end', function () {
-		    var result = JSON.parse(data.join(''));
-		    res.redirect("tournament/" + result.Key);
-		});
-	}).on('error',function(nack) {
-	    res.render("new", [{ id: 1, name: "error: "+ nack.message }]);
+    var getPlayers = http.request({ host: "michael", port: 666, path: "/players/all-json", method: "GET" }, function (ack) {
+        var getData = [];
+        ack.on('data', function (chunk) {
+            getData.push(chunk);
+        });
+        ack.on('end', function (param) {
+            var dataString = getData.join('');
+            var players = JSON.parse(dataString).map(function (invalidUser) {
+                return {
+                    name: invalidUser.Name,
+                    id: invalidUser['@metadata']['@id']
+                }
+            });
+            
+            //var players = [
+            //    { id: 1, name: "fitzchak" }, 
+            //    { id: 2, name: "Adi" }, 
+            //    { id: 3, name: "hila" }, 
+            //    { id: 4, name: "Maxim" },
+            //    { id: 5, name: "A" },
+            //    { id: 6, name: "B" },
+            //    { id: 7, name: "C" },
+            //    { id: 8, name: "F" },
+            //    { id: 9, name: "D2" },
+            //    { id: 10, name: "Fsd" },
+            //    { id: 11, name: "Gd" }
+            //];
+            
+            players = shuffle(players);
+            
+            var levels = [];
+            var levelMatches = [];
+            levels.push({ level: 0, matches: levelMatches });
+            
+            var closetPowerOf2 = Math.pow(2, Math.ceil(Math.log(players.length) / Math.log(2)));
+            for (var i = 0; i < players.length; i++) {
+                if (i < closetPowerOf2 / 2) {
+                    levelMatches.push({ players: [players[i], players [i + 1]], state: 'Not Resolved', done: false });
+                    i++;
+                } else {
+                    levelMatches.push({ players: [players[i], { id: -1, name: "n/a", isFake: true }], state: players[i], done: true });
+                }
+            }
+            tournament.levels = levels;
+            ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/tournament/", method: "PUT" , headers: { "Raven-Entity-Name": "Tournaments" } }, function (ack, resp) {
+                var data = [];
+                ack.on('data', function (chunk) {
+                    data.push(chunk);
+                });
+                ack.on('end', function () {
+                    var result = JSON.parse(data.join(''));
+                    res.redirect("tournament/" + result.Key);
+                });
+            }).on('error', function (nack) {
+                res.render("new", [{ id: 1, name: "error: " + nack.message }]);
+            });
+            
+            ravenReq.write(JSON.stringify(tournament));
+            ravenReq.end();            
+        });
+    }).on('error', function (nack) {
+        res.render("new", [{ id: 1, name: "error: " + nack.message }]);
     });
+    getPlayers.end();
+    
 
-	ravenReq.write(JSON.stringify(tournament));
-    ravenReq.end();
+	
 });
 
 function shuffle(array) {
@@ -214,7 +235,7 @@ function getTournament(id,successCallback, failureCallback) {
 	ravenReq.end();
 }
 
-function saveTournament(id,tournament, successCallback, failureCallback) {
+function saveTournament(id, tournament, successCallback, failureCallback) {    
 	var ravenReq = http.request({ host: "localhost", port: 8080, path: "/databases/tournament/docs/" + id, method: "PUT" }, function (ack, resp) {
 		var data = [];
 		ack.on('data', function (chunk) {
@@ -236,23 +257,53 @@ function saveTournament(id,tournament, successCallback, failureCallback) {
 
 app.get('/tournament/*', function (req, res) {
     var id = req.params[0];
-	var result = null;
-	
-	if (!!req.query.level) {
-		getTournament(id, function (result) {
-			var winner = result.levels[req.query.level].matches[req.query.match].players.find(function (x,i,a) {
-				return x.id.toString() === req.query.winner;
-			});
-			result.levels[req.query.level].matches[req.query.match].state = winner;
-			saveTournament(id, result, function () { res.render("tournament", { id: id, tournament: result }); }, function () { res.redirect("new" + result.Key); });
+	var result = null;	
+        
+        if (!!req.query.level) {
+            getTournament(id, function (result) {
+                var winner = result.levels[req.query.level].matches[req.query.match].players.find(function (x, i, a) {
+                    return x.id.toString() === req.query.winner;
+                });
+            result.levels[req.query.level].matches[req.query.match].state = winner;
+            result.levels[req.query.level].matches[req.query.match].done = true;
+                saveTournament(id, result, function () {
+                    res.redirect("/tournament/"+id);
+					//res.render("tournament", { id: id, tournament: result });
+                }, function () { res.redirect("new" + result.Key); });
 			
-		}, function () {
-			res.redirect("/");
-		});
-	} else {
-		getTournament(id, function (result) { res.render("tournament", { id: id, tournament: result }); }, function () { res.redirect("/"); });
+            }, function () {
+                res.redirect("/");
+            });
+        } else {
+            getTournament(id, function (result) {
+                var smalles
+                var lastLevel = result.levels[result.levels.length - 1];
+                if (!!lastLevel.matches.find(function (curMatch) {
+                    return curMatch.state === "Not Resolved";
+                })) {
+                    res.render("tournament", { id: id, tournament: result });
+                }
+                else {
+                    var levelWinners = lastLevel.matches.map(function (curMatch) {
+                        return curMatch.state;
+                    });
+                    if (levelWinners.length == 1) {
+                    res.render("winnerOfTheWorld", {id:id, winner:levelWinners[0].name});
+                    } else {
+                        var newMatches = getNextStage(levelWinners);
+                        result.levels.push({
+                            level: lastLevel.level + 1,
+                            matches: newMatches
+                        });
+                        saveTournament(id, result, function () { res.render("tournament", { id: id, tournament: result }); }, function () { res.redirect("new" + result.Key); });
+                    }                   
+
+                }
+			
+
+            }, function () { res.redirect("/"); });
 		
-	}    
+        }    
 });
 
 
@@ -264,32 +315,19 @@ var server = app.listen(port, function () {
 	console.log('Example app listening at http://%s:%s', host, port);
 });
 
-function getNextStage(players) {
-    var testplayers = [
-        ["player/1", "Name1"],
-        ["player/3", "Name3"],
-        ["player/5", "Name5"],
-        ["player/7", "Name7"],
-        ["player/9", "Name9"],
-        ["player/10", "Name10"],
-        ["player/11", "Name11"],
-    ];
-    
-    var emptyPlayer = ["Empty", "Player"]
-    
-    players = testplayers;
-    
+function getNextStage(players) {        
     var matches = [];
     var half = players.length / 2;
-    
-    for (var i = 0; i < (half / 2) + 1; i++) {
-        matches.push(players[i], players[players.length - i - 1])
+	var emptyPlayer = { id: -1, name: "n/a", isFake: true };
+	//{ players: [players[i], players [i + 1]], state: 'Not Resolved' }
+    for (var i = 0; i < Math.floor(half / 2) + 1; i++) {
+        //matches.push(players[i], players[players.length - i - 1])
+        matches.push({ players: [players[i], players[players.length - i - 1]], state: 'Not Resolved', done: false })
     }
     var chk = half - Math.floor(players.length / 2);
-    if (chk !== 0) {
-        matches.unshift([players[Math.floor(players.length / 2)], emptyPlayer]);
+    if (chk !== 0 && players.length !== 1) {
+        //matches.unshift([players[Math.floor(players.length / 2)], emptyPlayer]);
+		matches.unshift({ players: [players[Math.floor(players.length / 2)], emptyPlayer], state: players[Math.floor(players.length / 2)],done:true })
     }
-    
-    
-    console.log(" stage = " + matches);
+	return matches;
 }

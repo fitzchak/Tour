@@ -31,6 +31,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="server.js" />
+    <Content Include="views\winnerOfTheWorld.handlebars" />
     <Content Include="views\tournament.handlebars" />
     <Content Include="views\new.handlebars" />
     <Content Include="views\home.handlebars" />
